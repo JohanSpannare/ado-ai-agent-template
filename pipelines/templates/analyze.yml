@@ -235,13 +235,27 @@ jobs:
           mkdir -p $HOME/.local/share/opencode
           echo "$OPENCODE_AUTH_JSON" > $HOME/.local/share/opencode/auth.json
 
+          # Build docker arguments
+          DOCKER_ARGS="--rm"
+          DOCKER_ARGS="$DOCKER_ARGS -e ADO_MCP_AUTH_TOKEN"
+          DOCKER_ARGS="$DOCKER_ARGS -e AZURE_DEVOPS_ORG_URL=https://dev.azure.com/$AZURE_DEVOPS_ORG"
+          DOCKER_ARGS="$DOCKER_ARGS -v $HOME/.local/share/opencode:/root/.local/share/opencode"
+          DOCKER_ARGS="$DOCKER_ARGS -v $(pwd):/workspace"
+          DOCKER_ARGS="$DOCKER_ARGS -w /workspace"
+
+          # Add CA certificate if available (for internal HTTPS endpoints)
+          if [ -f "certs/if-root-ca-g2.crt" ]; then
+            echo "Mounting organization CA certificate..."
+            DOCKER_ARGS="$DOCKER_ARGS -v $(pwd)/certs/if-root-ca-g2.crt:/usr/local/share/ca-certificates/org-root-ca.crt"
+            DOCKER_ARGS="$DOCKER_ARGS -e NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/org-root-ca.crt"
+          elif [ -f "template/certs/root-ca.crt" ]; then
+            echo "Mounting template CA certificate..."
+            DOCKER_ARGS="$DOCKER_ARGS -v $(pwd)/template/certs/root-ca.crt:/usr/local/share/ca-certificates/org-root-ca.crt"
+            DOCKER_ARGS="$DOCKER_ARGS -e NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/org-root-ca.crt"
+          fi
+
           # Run OpenCode with analyze agent
-          docker run --rm \
-            -e ADO_MCP_AUTH_TOKEN \
-            -e AZURE_DEVOPS_ORG_URL="https://dev.azure.com/$AZURE_DEVOPS_ORG" \
-            -v "$HOME/.local/share/opencode:/root/.local/share/opencode" \
-            -v "$(pwd):/workspace" \
-            -w /workspace \
+          docker run $DOCKER_ARGS \
             ${{ parameters.dockerImage }} run --agent analyze "$PROMPT" > analysis-result.md
         displayName: 'Run OpenCode Analysis'
         env:
