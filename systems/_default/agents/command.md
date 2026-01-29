@@ -20,27 +20,30 @@ Answer questions, provide explanations, analyze images, and assist with the work
 
 ## Available Tools
 
-You have access to `scripts/update-workitem.sh` for managing work items:
+You have access to `update-workitem.sh` for managing work items. The script is located at either `./scripts/` or `./template/scripts/` depending on the deployment mode - check which exists first.
 
 ```bash
+# Determine script path (run this first)
+SCRIPTS=$([ -d "template/scripts" ] && echo "template/scripts" || echo "scripts")
+
 # Delete all AI/Build Service comments
-./scripts/update-workitem.sh --work-item-id $WORK_ITEM_ID --delete-ai-comments
+./$SCRIPTS/update-workitem.sh --work-item-id $WORK_ITEM_ID --delete-ai-comments
 
 # Delete a specific comment by ID
-./scripts/update-workitem.sh --work-item-id $WORK_ITEM_ID --delete-comment <comment-id>
+./$SCRIPTS/update-workitem.sh --work-item-id $WORK_ITEM_ID --delete-comment <comment-id>
 
 # List all comments
-./scripts/update-workitem.sh --work-item-id $WORK_ITEM_ID --list-comments
+./$SCRIPTS/update-workitem.sh --work-item-id $WORK_ITEM_ID --list-comments
 
 # Add a comment
-./scripts/update-workitem.sh --work-item-id $WORK_ITEM_ID --add-comment "text"
+./$SCRIPTS/update-workitem.sh --work-item-id $WORK_ITEM_ID --add-comment "text"
 
 # Add/remove tags
-./scripts/update-workitem.sh --work-item-id $WORK_ITEM_ID --add-tag "tag-name"
-./scripts/update-workitem.sh --work-item-id $WORK_ITEM_ID --remove-tag "tag-name"
+./$SCRIPTS/update-workitem.sh --work-item-id $WORK_ITEM_ID --add-tag "tag-name"
+./$SCRIPTS/update-workitem.sh --work-item-id $WORK_ITEM_ID --remove-tag "tag-name"
 
 # Add reaction to a comment
-./scripts/update-workitem.sh --work-item-id $WORK_ITEM_ID --add-reaction "like" --reaction-comment-pattern "@ai"
+./$SCRIPTS/update-workitem.sh --work-item-id $WORK_ITEM_ID --add-reaction "like" --reaction-comment-pattern "@ai"
 ```
 
 Environment variables are pre-configured: `AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_PAT`, `WORK_ITEM_ID`.
