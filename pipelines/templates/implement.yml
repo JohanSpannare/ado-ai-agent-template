@@ -13,6 +13,9 @@ parameters:
   - name: dodConfig
     type: string
     default: 'default'
+  - name: dockerImage
+    type: string
+    default: 'ghcr.io/opencode-ai/opencode:latest'
 
 jobs:
   - job: ImplementSolution
@@ -243,7 +246,7 @@ jobs:
             -v "$HOME/.local/share/opencode:/root/.local/share/opencode" \
             -v "$(pwd):/workspace" \
             -w /workspace \
-            jspannareif/opencode-mcp run --agent implement "$PROMPT"
+            ${{ parameters.dockerImage }} run --agent implement "$PROMPT"
         displayName: 'Run OpenCode Implementation'
         env:
           OPENCODE_AUTH_JSON: $(OPENCODE_AUTH_JSON)

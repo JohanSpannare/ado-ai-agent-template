@@ -6,11 +6,32 @@
 # Required pipeline variables:
 #   OPENCODE_AUTH_JSON - OpenCode authentication JSON
 #   TEAMS_WEBHOOK_URL - (Optional) Teams webhook for notifications
+#
+# Usage:
+#   Standalone (GitHub template): Use this file directly as your pipeline
+#   With submodule: Extend from parent repo (see extends example below)
+#
+# Example extends from parent repo:
+#   extends:
+#     template: template/pipelines/ai-agent.yml
+#     parameters:
+#       dockerImage: 'myorg/opencode-custom'
+#       webhookConnection: 'my-webhook-connection'
+
+parameters:
+  - name: dockerImage
+    type: string
+    default: 'ghcr.io/opencode-ai/opencode:latest'
+    displayName: 'Docker image for OpenCode'
+  - name: webhookConnection
+    type: string
+    default: 'ai-agent-trigger'
+    displayName: 'Azure DevOps webhook service connection name'
 
 resources:
   webhooks:
     - webhook: WorkItemEvent
-      connection: ai-agent-trigger
+      connection: ${{ parameters.webhookConnection }}
 
 trigger: none
 
@@ -150,6 +171,7 @@ stages:
         parameters:
           workItemId: $(WORK_ITEM_ID)
           dodConfig: 'default'
+          dockerImage: ${{ parameters.dockerImage }}
 
   # Stage 3: Implement solution (when ai-approved tag is added)
   - stage: Implement
@@ -164,6 +186,7 @@ stages:
           workItemId: $(WORK_ITEM_ID)
           targetRepo: ''
           dodConfig: 'default'
+          dockerImage: ${{ parameters.dockerImage }}
 
   # Stage 4: Execute AI command (when @ai mention in comment)
   - stage: Command
@@ -178,6 +201,7 @@ stages:
         parameters:
           workItemId: $(WORK_ITEM_ID)
           command: $(AI_COMMAND)
+          dockerImage: ${{ parameters.dockerImage }}
 
   # Stage 5: Skip (no actionable tags)
   - stage: Skip
