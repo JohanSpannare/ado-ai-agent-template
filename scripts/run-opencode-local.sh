@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run OpenCode container locally for testing
 # Usage: ./scripts/run-opencode-local.sh [-s|--system <system>] [prompt]
-# Example: ./scripts/run-opencode-local.sh -s example-dotnet "analyze this codebase"
+# Example: ./scripts/run-opencode-local.sh -s spectre "analyze this codebase"
 
 set -e
 
@@ -58,7 +58,7 @@ if [ -z "$AZURE_DEVOPS_PAT" ]; then
 fi
 
 # Configuration
-AZURE_DEVOPS_ORG_URL="${AZURE_DEVOPS_ORG_URL:-https://dev.azure.com/your-org}"
+AZURE_DEVOPS_ORG_URL="${AZURE_DEVOPS_ORG_URL:-https://dev.azure.com/if-it}"
 IMAGE="${OPENCODE_IMAGE:-jspannareif/opencode-mcp:latest}"
 WORKSPACE="${WORKSPACE:-$(pwd)}"
 
@@ -68,34 +68,83 @@ if [ ! -f "$WORKSPACE/opencode.json" ]; then
     cp "$REPO_ROOT/systems/_default/opencode.json" "$WORKSPACE/opencode.json"
 fi
 
-# Clear and load skills fresh
-DEFAULT_SKILLS_DIR="$REPO_ROOT/systems/_default/skills"
+# Clear and load skills fresh (layered like pipeline)
 rm -rf "$WORKSPACE/.opencode/skills"
 mkdir -p "$WORKSPACE/.opencode/skills"
 
-if [ -d "$DEFAULT_SKILLS_DIR" ] && [ "$(ls -A "$DEFAULT_SKILLS_DIR" 2>/dev/null)" ]; then
-    echo -e "${GREEN}Loading default skills:${NC}"
-    cp -r "$DEFAULT_SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
-    for skill in "$DEFAULT_SKILLS_DIR"/*/; do
-        if [ -d "$skill" ]; then
-            echo -e "  - $(basename "$skill")"
-        fi
-    done
+# Detect submodule mode
+if [ -d "$REPO_ROOT/template/scripts" ]; then
+    SUBMODULE_MODE="true"
+else
+    SUBMODULE_MODE="false"
 fi
 
-# Load additional skills from specified system
-if [ -n "$SYSTEM" ]; then
-    SKILLS_DIR="$REPO_ROOT/systems/$SYSTEM/skills"
-    if [ -d "$SKILLS_DIR" ] && [ "$(ls -A "$SKILLS_DIR" 2>/dev/null)" ]; then
-        echo -e "${GREEN}Loading skills from system: $SYSTEM${NC}"
-        cp -r "$SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
-        for skill in "$SKILLS_DIR"/*/; do
+if [ "$SUBMODULE_MODE" = "true" ]; then
+    # 1. Template default skills (generic base)
+    TEMPLATE_SKILLS_DIR="$REPO_ROOT/template/systems/_default/skills"
+    if [ -d "$TEMPLATE_SKILLS_DIR" ] && [ "$(ls -A "$TEMPLATE_SKILLS_DIR" 2>/dev/null)" ]; then
+        echo -e "${GREEN}Loading template default skills:${NC}"
+        cp -r "$TEMPLATE_SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+        for skill in "$TEMPLATE_SKILLS_DIR"/*/; do
             if [ -d "$skill" ]; then
                 echo -e "  - $(basename "$skill")"
             fi
         done
-    else
-        echo -e "${YELLOW}Warning: No skills found for system '$SYSTEM'${NC}"
+    fi
+
+    # 2. Local default skills (organization-specific, can override template)
+    LOCAL_SKILLS_DIR="$REPO_ROOT/systems/_default/skills"
+    if [ -d "$LOCAL_SKILLS_DIR" ] && [ "$(ls -A "$LOCAL_SKILLS_DIR" 2>/dev/null)" ]; then
+        echo -e "${GREEN}Loading organization-specific skills:${NC}"
+        cp -r "$LOCAL_SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+        for skill in "$LOCAL_SKILLS_DIR"/*/; do
+            if [ -d "$skill" ]; then
+                echo -e "  - $(basename "$skill")"
+            fi
+        done
+    fi
+
+    # 3. System-specific skills from both locations
+    if [ -n "$SYSTEM" ]; then
+        for systems_dir in "$REPO_ROOT/template/systems" "$REPO_ROOT/systems"; do
+            SKILLS_DIR="$systems_dir/$SYSTEM/skills"
+            if [ -d "$SKILLS_DIR" ] && [ "$(ls -A "$SKILLS_DIR" 2>/dev/null)" ]; then
+                echo -e "${GREEN}Loading skills from $(basename "$systems_dir")/$SYSTEM:${NC}"
+                cp -r "$SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+                for skill in "$SKILLS_DIR"/*/; do
+                    if [ -d "$skill" ]; then
+                        echo -e "  - $(basename "$skill")"
+                    fi
+                done
+            fi
+        done
+    fi
+else
+    # Standalone mode: simple loading
+    DEFAULT_SKILLS_DIR="$REPO_ROOT/systems/_default/skills"
+    if [ -d "$DEFAULT_SKILLS_DIR" ] && [ "$(ls -A "$DEFAULT_SKILLS_DIR" 2>/dev/null)" ]; then
+        echo -e "${GREEN}Loading default skills:${NC}"
+        cp -r "$DEFAULT_SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+        for skill in "$DEFAULT_SKILLS_DIR"/*/; do
+            if [ -d "$skill" ]; then
+                echo -e "  - $(basename "$skill")"
+            fi
+        done
+    fi
+
+    if [ -n "$SYSTEM" ]; then
+        SKILLS_DIR="$REPO_ROOT/systems/$SYSTEM/skills"
+        if [ -d "$SKILLS_DIR" ] && [ "$(ls -A "$SKILLS_DIR" 2>/dev/null)" ]; then
+            echo -e "${GREEN}Loading skills from system: $SYSTEM${NC}"
+            cp -r "$SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+            for skill in "$SKILLS_DIR"/*/; do
+                if [ -d "$skill" ]; then
+                    echo -e "  - $(basename "$skill")"
+                fi
+            done
+        else
+            echo -e "${YELLOW}Warning: No skills found for system '$SYSTEM'${NC}"
+        fi
     fi
 fi
 
