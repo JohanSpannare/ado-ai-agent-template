@@ -1,0 +1,137 @@
+# Process Stage Template
+# Parses webhook payload and determines which action to take
+#
+# Output variables (available to subsequent stages):
+#   webhook.WORK_ITEM_ID - The work item ID from the webhook
+#   webhook.ACTION - The action to take (analyze, implement, command, skip)
+#   webhook.AI_COMMAND - The AI command text (if action is 'command')
+#   webhook.TAGS - Current tags on the work item
+
+parameters:
+  - name: webhookPayload
+    type: object
+    default: {}
+
+stages:
+  - stage: Process
+    displayName: 'Process Webhook'
+    jobs:
+      - job: DetermineAction
+        displayName: 'Determine Action'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - script: |
+              # Parse webhook payload JSON
+              PAYLOAD='${{ convertToJson(parameters.webhookPayload) }}'
+              WORK_ITEM_ID=$(echo "$PAYLOAD" | jq -r '.resource.workItemId // .resource.id // empty')
+              EVENT_TYPE=$(echo "$PAYLOAD" | jq -r '.eventType // empty')
+
+              echo "Work Item ID: $WORK_ITEM_ID"
+              echo "Event Type: $EVENT_TYPE"
+
+              if [ -z "$WORK_ITEM_ID" ]; then
+                echo "##vso[task.logissue type=error]Could not extract work item ID from webhook payload"
+                echo "##vso[task.setvariable variable=ACTION;isOutput=true]skip"
+                exit 0
+              fi
+
+              # Initialize variables
+              ACTION="skip"
+              AI_COMMAND=""
+
+              # Handle comment events (workitem.commented)
+              if [ "$EVENT_TYPE" = "workitem.commented" ]; then
+                # Comment text is in System.History field (may contain HTML)
+                RAW_COMMENT=$(echo "$PAYLOAD" | jq -r '.resource.fields["System.History"] // empty')
+                # Strip HTML tags from comment
+                COMMENT_TEXT=$(echo "$RAW_COMMENT" | sed 's/<[^>]*>//g' | sed 's/&nbsp;/ /g' | sed 's/&amp;/\&/g' | sed 's/&lt;/</g' | sed 's/&gt;/>/g' | xargs)
+                echo "Comment Text: $COMMENT_TEXT"
+
+                # Check for @ai mention (case-insensitive)
+                if echo "$COMMENT_TEXT" | grep -qi "@ai"; then
+                  ACTION="command"
+                  # Extract command (everything after @ai, case-insensitive)
+                  AI_COMMAND=$(echo "$COMMENT_TEXT" | sed 's/.*@[Aa][Ii]\s*//')
+                  echo "AI Command: $AI_COMMAND"
+                fi
+              else
+                # Handle tag-based events (workitem.updated)
+                # Fetch current work item to get tags
+                RESPONSE=$(curl -s -u ":$SYSTEM_ACCESSTOKEN" \
+                  "$SYSTEM_COLLECTIONURI$SYSTEM_TEAMPROJECT/_apis/wit/workitems/$WORK_ITEM_ID?api-version=7.0")
+
+                TAGS=$(echo "$RESPONSE" | jq -r '.fields["System.Tags"] // ""')
+                echo "Current Tags: $TAGS"
+
+                # Determine action based on tags
+                if [[ "$TAGS" == *"ai-ready"* ]] && [[ "$TAGS" != *"ai-working"* ]] && [[ "$TAGS" != *"ai-approved"* ]]; then
+                  ACTION="analyze"
+                elif [[ "$TAGS" == *"ai-approved"* ]] && [[ "$TAGS" != *"ai-working"* ]]; then
+                  ACTION="implement"
+                fi
+              fi
+
+              echo "Action: $ACTION"
+
+              # Set output variables
+              echo "##vso[task.setvariable variable=WORK_ITEM_ID;isOutput=true]$WORK_ITEM_ID"
+              echo "##vso[task.setvariable variable=TAGS;isOutput=true]$TAGS"
+              echo "##vso[task.setvariable variable=ACTION;isOutput=true]$ACTION"
+              echo "##vso[task.setvariable variable=AI_COMMAND;isOutput=true]$AI_COMMAND"
+            displayName: 'Extract webhook data and determine action'
+            name: webhook
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              SYSTEM_COLLECTIONURI: $(System.CollectionUri)
+              SYSTEM_TEAMPROJECT: $(System.TeamProject)
+
+          - checkout: self
+            displayName: 'Checkout for scripts'
+            condition: and(succeeded(), ne(variables['webhook.ACTION'], 'skip'))
+            submodules: true
+
+          - script: |
+              # Auto-detect org from System.CollectionUri
+              export AZURE_DEVOPS_ORG=$(echo "$SYSTEM_COLLECTIONURI" | sed 's|https://dev.azure.com/||' | sed 's|/$||')
+              echo "##vso[task.setvariable variable=AZURE_DEVOPS_ORG;isOutput=true]$AZURE_DEVOPS_ORG"
+
+              # Detect submodule mode and set script path
+              if [ -d "template/scripts" ]; then
+                SCRIPTS="template/scripts"
+                echo "Running in submodule mode"
+              else
+                SCRIPTS="scripts"
+                echo "Running in standalone mode"
+              fi
+              chmod +x $SCRIPTS/*.sh scripts/*.sh 2>/dev/null || true
+              echo "##vso[task.setvariable variable=SCRIPTS_DIR;isOutput=true]$SCRIPTS"
+            displayName: 'Detect environment'
+            name: env
+            condition: and(succeeded(), ne(variables['webhook.ACTION'], 'skip'))
+            env:
+              SYSTEM_COLLECTIONURI: $(System.CollectionUri)
+
+          - script: |
+              ACTION="$(webhook.ACTION)"
+              WORK_ITEM_ID="$(webhook.WORK_ITEM_ID)"
+              SCRIPTS="$(env.SCRIPTS_DIR)"
+
+              # Add ai-working tag
+              ./$SCRIPTS/update-workitem.sh \
+                --work-item-id "$WORK_ITEM_ID" \
+                --add-tag "ai-working"
+
+              # For command actions (triggered by @ai comment), add a reaction
+              if [ "$ACTION" = "command" ]; then
+                ./$SCRIPTS/update-workitem.sh \
+                  --work-item-id "$WORK_ITEM_ID" \
+                  --add-reaction "like" \
+                  --reaction-comment-pattern "@ai"
+              fi
+            displayName: 'Notify user - AI Agent started'
+            condition: and(succeeded(), ne(variables['webhook.ACTION'], 'skip'))
+            env:
+              AZURE_DEVOPS_ORG: $(env.AZURE_DEVOPS_ORG)
+              AZURE_DEVOPS_PROJECT: $(System.TeamProject)
+              AZURE_DEVOPS_PAT: $(System.AccessToken)

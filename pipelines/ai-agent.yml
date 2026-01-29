@@ -1,228 +1,47 @@
 # Azure DevOps AI Agent Pipeline
 # Triggered by incoming webhook from service hook when work item is updated
 #
-# Org is auto-detected from System.CollectionUri
+# This is the STANDALONE version - use directly for GitHub template users.
+# For org-specific customization (webhook name, docker image), see examples/azure-pipelines.yml
 #
-# Required pipeline variables:
+# Required pipeline variables (set in Azure DevOps):
 #   OPENCODE_AUTH_JSON - OpenCode authentication JSON
-#   TEAMS_WEBHOOK_URL - (Optional) Teams webhook for notifications
 #
-# Usage:
-#   Standalone (GitHub template): Use this file directly as your pipeline
-#   With submodule: Extend from parent repo (see extends example below)
-#
-# Example extends from parent repo:
-#   extends:
-#     template: template/pipelines/ai-agent.yml
-#     parameters:
-#       dockerImage: 'myorg/opencode-custom'
-#       webhookConnection: 'my-webhook-connection'
-
-parameters:
-  - name: dockerImage
-    type: string
-    default: 'ghcr.io/opencode-ai/opencode:latest'
-    displayName: 'Docker image for OpenCode'
-  - name: webhookConnection
-    type: string
-    default: 'ai-agent-trigger'
-    displayName: 'Azure DevOps webhook service connection name'
+# Optional variables:
+#   DOCKER_IMAGE - Override default OpenCode docker image
+#   TEAMS_WEBHOOK_URL - Teams webhook for notifications
 
 resources:
   webhooks:
     - webhook: WorkItemEvent
-      connection: ${{ parameters.webhookConnection }}
+      connection: ai-agent-trigger
 
 trigger: none
 
+variables:
+  # Default docker image - override in pipeline variables for org-specific image
+  dockerImage: ${{ coalesce(variables['DOCKER_IMAGE'], 'ghcr.io/opencode-ai/opencode:latest') }}
+
 stages:
   # Stage 1: Process webhook and determine action
-  - stage: Process
-    displayName: 'Process Webhook'
-    jobs:
-      - job: DetermineAction
-        displayName: 'Determine Action'
-        pool:
-          vmImage: 'ubuntu-latest'
-        steps:
-          - script: |
-              # Parse webhook payload JSON
-              PAYLOAD='${{ convertToJson(parameters.WorkItemEvent) }}'
-              WORK_ITEM_ID=$(echo "$PAYLOAD" | jq -r '.resource.workItemId // .resource.id // empty')
-              EVENT_TYPE=$(echo "$PAYLOAD" | jq -r '.eventType // empty')
-
-              echo "Work Item ID: $WORK_ITEM_ID"
-              echo "Event Type: $EVENT_TYPE"
-
-              if [ -z "$WORK_ITEM_ID" ]; then
-                echo "##vso[task.logissue type=error]Could not extract work item ID from webhook payload"
-                echo "##vso[task.setvariable variable=ACTION;isOutput=true]skip"
-                exit 0
-              fi
-
-              # Initialize variables
-              ACTION="skip"
-              AI_COMMAND=""
-
-              # Handle comment events (workitem.commented)
-              if [ "$EVENT_TYPE" = "workitem.commented" ]; then
-                # Comment text is in System.History field (may contain HTML)
-                RAW_COMMENT=$(echo "$PAYLOAD" | jq -r '.resource.fields["System.History"] // empty')
-                # Strip HTML tags from comment
-                COMMENT_TEXT=$(echo "$RAW_COMMENT" | sed 's/<[^>]*>//g' | sed 's/&nbsp;/ /g' | sed 's/&amp;/\&/g' | sed 's/&lt;/</g' | sed 's/&gt;/>/g' | xargs)
-                echo "Comment Text: $COMMENT_TEXT"
-
-                # Check for @ai mention (case-insensitive)
-                if echo "$COMMENT_TEXT" | grep -qi "@ai"; then
-                  ACTION="command"
-                  # Extract command (everything after @ai, case-insensitive)
-                  AI_COMMAND=$(echo "$COMMENT_TEXT" | sed 's/.*@[Aa][Ii]\s*//')
-                  echo "AI Command: $AI_COMMAND"
-                fi
-              else
-                # Handle tag-based events (workitem.updated)
-                # Fetch current work item to get tags
-                RESPONSE=$(curl -s -u ":$SYSTEM_ACCESSTOKEN" \
-                  "$SYSTEM_COLLECTIONURI$SYSTEM_TEAMPROJECT/_apis/wit/workitems/$WORK_ITEM_ID?api-version=7.0")
-
-                TAGS=$(echo "$RESPONSE" | jq -r '.fields["System.Tags"] // ""')
-                echo "Current Tags: $TAGS"
-
-                # Determine action based on tags
-                if [[ "$TAGS" == *"ai-ready"* ]] && [[ "$TAGS" != *"ai-working"* ]] && [[ "$TAGS" != *"ai-approved"* ]]; then
-                  ACTION="analyze"
-                elif [[ "$TAGS" == *"ai-approved"* ]] && [[ "$TAGS" != *"ai-working"* ]]; then
-                  ACTION="implement"
-                fi
-              fi
-
-              echo "Action: $ACTION"
-
-              # Set output variables
-              echo "##vso[task.setvariable variable=WORK_ITEM_ID;isOutput=true]$WORK_ITEM_ID"
-              echo "##vso[task.setvariable variable=TAGS;isOutput=true]$TAGS"
-              echo "##vso[task.setvariable variable=ACTION;isOutput=true]$ACTION"
-              echo "##vso[task.setvariable variable=AI_COMMAND;isOutput=true]$AI_COMMAND"
-            displayName: 'Extract webhook data and determine action'
-            name: webhook
-            env:
-              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
-              SYSTEM_COLLECTIONURI: $(System.CollectionUri)
-              SYSTEM_TEAMPROJECT: $(System.TeamProject)
-
-          - checkout: self
-            displayName: 'Checkout for scripts'
-            condition: and(succeeded(), ne(variables['webhook.ACTION'], 'skip'))
-            submodules: true
-
-          - script: |
-              # Auto-detect org from System.CollectionUri
-              export AZURE_DEVOPS_ORG=$(echo "$SYSTEM_COLLECTIONURI" | sed 's|https://dev.azure.com/||' | sed 's|/$||')
-              echo "##vso[task.setvariable variable=AZURE_DEVOPS_ORG]$AZURE_DEVOPS_ORG"
-
-              # Detect submodule mode and set script path
-              if [ -d "template/scripts" ]; then
-                SCRIPTS="template/scripts"
-                echo "Running in submodule mode"
-              else
-                SCRIPTS="scripts"
-                echo "Running in standalone mode"
-              fi
-              chmod +x $SCRIPTS/*.sh scripts/*.sh 2>/dev/null || true
-              echo "##vso[task.setvariable variable=SCRIPTS_DIR]$SCRIPTS"
-            displayName: 'Detect environment'
-            condition: and(succeeded(), ne(variables['webhook.ACTION'], 'skip'))
-            env:
-              SYSTEM_COLLECTIONURI: $(System.CollectionUri)
-
-          - script: |
-              ACTION="$(webhook.ACTION)"
-              WORK_ITEM_ID="$(webhook.WORK_ITEM_ID)"
-              SCRIPTS="$(SCRIPTS_DIR)"
-
-              # Add ai-working tag
-              ./$SCRIPTS/update-workitem.sh \
-                --work-item-id "$WORK_ITEM_ID" \
-                --add-tag "ai-working"
-
-              # For command actions (triggered by @ai comment), add a reaction
-              if [ "$ACTION" = "command" ]; then
-                ./$SCRIPTS/update-workitem.sh \
-                  --work-item-id "$WORK_ITEM_ID" \
-                  --add-reaction "like" \
-                  --reaction-comment-pattern "@ai"
-              fi
-            displayName: 'Notify user - AI Agent started'
-            condition: and(succeeded(), ne(variables['webhook.ACTION'], 'skip'))
-            env:
-              AZURE_DEVOPS_ORG: $(AZURE_DEVOPS_ORG)
-              AZURE_DEVOPS_PROJECT: $(System.TeamProject)
-              AZURE_DEVOPS_PAT: $(System.AccessToken)
+  - template: stages/process.yml
+    parameters:
+      webhookPayload: ${{ parameters.WorkItemEvent }}
 
   # Stage 2: Analyze work item (when ai-ready tag is added)
-  - stage: Analyze
-    displayName: 'Analyze Work Item'
-    dependsOn: Process
-    condition: and(succeeded(), eq(dependencies.Process.outputs['DetermineAction.webhook.ACTION'], 'analyze'))
-    variables:
-      WORK_ITEM_ID: $[ stageDependencies.Process.DetermineAction.outputs['webhook.WORK_ITEM_ID'] ]
-    jobs:
-      - template: templates/analyze.yml
-        parameters:
-          workItemId: $(WORK_ITEM_ID)
-          dodConfig: 'default'
-          dockerImage: ${{ parameters.dockerImage }}
+  - template: stages/analyze.yml
+    parameters:
+      dockerImage: $(dockerImage)
 
   # Stage 3: Implement solution (when ai-approved tag is added)
-  - stage: Implement
-    displayName: 'Implement Solution'
-    dependsOn: Process
-    condition: and(succeeded(), eq(dependencies.Process.outputs['DetermineAction.webhook.ACTION'], 'implement'))
-    variables:
-      WORK_ITEM_ID: $[ stageDependencies.Process.DetermineAction.outputs['webhook.WORK_ITEM_ID'] ]
-    jobs:
-      - template: templates/implement.yml
-        parameters:
-          workItemId: $(WORK_ITEM_ID)
-          targetRepo: ''
-          dodConfig: 'default'
-          dockerImage: ${{ parameters.dockerImage }}
+  - template: stages/implement.yml
+    parameters:
+      dockerImage: $(dockerImage)
 
   # Stage 4: Execute AI command (when @ai mention in comment)
-  - stage: Command
-    displayName: 'Execute AI Command'
-    dependsOn: Process
-    condition: and(succeeded(), eq(dependencies.Process.outputs['DetermineAction.webhook.ACTION'], 'command'))
-    variables:
-      WORK_ITEM_ID: $[ stageDependencies.Process.DetermineAction.outputs['webhook.WORK_ITEM_ID'] ]
-      AI_COMMAND: $[ stageDependencies.Process.DetermineAction.outputs['webhook.AI_COMMAND'] ]
-    jobs:
-      - template: templates/command.yml
-        parameters:
-          workItemId: $(WORK_ITEM_ID)
-          command: $(AI_COMMAND)
-          dockerImage: ${{ parameters.dockerImage }}
+  - template: stages/command.yml
+    parameters:
+      dockerImage: $(dockerImage)
 
   # Stage 5: Skip (no actionable tags)
-  - stage: Skip
-    displayName: 'No Action Required'
-    dependsOn: Process
-    condition: and(succeeded(), eq(dependencies.Process.outputs['DetermineAction.webhook.ACTION'], 'skip'))
-    variables:
-      WORK_ITEM_ID: $[ stageDependencies.Process.DetermineAction.outputs['webhook.WORK_ITEM_ID'] ]
-      TAGS: $[ stageDependencies.Process.DetermineAction.outputs['webhook.TAGS'] ]
-    jobs:
-      - job: LogSkip
-        displayName: 'Log Skip Reason'
-        pool:
-          vmImage: 'ubuntu-latest'
-        steps:
-          - script: |
-              echo "No actionable trigger found."
-              echo "Work Item ID: $(WORK_ITEM_ID)"
-              echo "Tags: $(TAGS)"
-              echo ""
-              echo "To trigger analysis: add 'ai-ready' tag"
-              echo "To trigger implementation: add 'ai-approved' tag"
-              echo "To trigger command: add comment with '@ai <your command>'"
-            displayName: 'Log skip reason'
+  - template: stages/skip.yml

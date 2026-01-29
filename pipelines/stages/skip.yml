@@ -1,0 +1,28 @@
+# Skip Stage Template
+# Runs when no actionable trigger is detected
+#
+# Dependencies: Process stage must complete first
+
+stages:
+  - stage: Skip
+    displayName: 'No Action Required'
+    dependsOn: Process
+    condition: and(succeeded(), eq(dependencies.Process.outputs['DetermineAction.webhook.ACTION'], 'skip'))
+    variables:
+      WORK_ITEM_ID: $[ stageDependencies.Process.DetermineAction.outputs['webhook.WORK_ITEM_ID'] ]
+      TAGS: $[ stageDependencies.Process.DetermineAction.outputs['webhook.TAGS'] ]
+    jobs:
+      - job: LogSkip
+        displayName: 'Log Skip Reason'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - script: |
+              echo "No actionable trigger found."
+              echo "Work Item ID: $(WORK_ITEM_ID)"
+              echo "Tags: $(TAGS)"
+              echo ""
+              echo "To trigger analysis: add 'ai-ready' tag"
+              echo "To trigger implementation: add 'ai-approved' tag"
+              echo "To trigger command: add comment with '@ai <your command>'"
+            displayName: 'Log skip reason'

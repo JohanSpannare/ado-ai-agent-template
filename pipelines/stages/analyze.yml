@@ -1,0 +1,23 @@
+# Analyze Stage Template
+# Runs when ai-ready tag is added to a work item
+#
+# Dependencies: Process stage must complete first
+
+parameters:
+  - name: dockerImage
+    type: string
+    default: 'ghcr.io/opencode-ai/opencode:latest'
+
+stages:
+  - stage: Analyze
+    displayName: 'Analyze Work Item'
+    dependsOn: Process
+    condition: and(succeeded(), eq(dependencies.Process.outputs['DetermineAction.webhook.ACTION'], 'analyze'))
+    variables:
+      WORK_ITEM_ID: $[ stageDependencies.Process.DetermineAction.outputs['webhook.WORK_ITEM_ID'] ]
+    jobs:
+      - template: ../templates/analyze.yml
+        parameters:
+          workItemId: $(WORK_ITEM_ID)
+          dodConfig: 'default'
+          dockerImage: ${{ parameters.dockerImage }}

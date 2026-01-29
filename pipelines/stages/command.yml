@@ -1,0 +1,24 @@
+# Command Stage Template
+# Runs when @ai mention is detected in a work item comment
+#
+# Dependencies: Process stage must complete first
+
+parameters:
+  - name: dockerImage
+    type: string
+    default: 'ghcr.io/opencode-ai/opencode:latest'
+
+stages:
+  - stage: Command
+    displayName: 'Execute AI Command'
+    dependsOn: Process
+    condition: and(succeeded(), eq(dependencies.Process.outputs['DetermineAction.webhook.ACTION'], 'command'))
+    variables:
+      WORK_ITEM_ID: $[ stageDependencies.Process.DetermineAction.outputs['webhook.WORK_ITEM_ID'] ]
+      AI_COMMAND: $[ stageDependencies.Process.DetermineAction.outputs['webhook.AI_COMMAND'] ]
+    jobs:
+      - template: ../templates/command.yml
+        parameters:
+          workItemId: $(WORK_ITEM_ID)
+          command: $(AI_COMMAND)
+          dockerImage: ${{ parameters.dockerImage }}

@@ -27,6 +27,12 @@ git init
 # Add template as submodule
 git submodule add https://github.com/your-org/ado-ai-agent-template.git template
 
+# Copy and customize the example pipeline
+cp template/examples/azure-pipelines.yml azure-pipelines.yml
+# Edit azure-pipelines.yml:
+# - Change 'my-org-webhook' to your webhook connection name
+# - Change 'myorg/opencode-custom' to your docker image
+
 # Create your organization-specific systems and skills
 mkdir -p systems skills
 ```
@@ -141,7 +147,54 @@ Inline images embedded in work item HTML fields are also extracted and analyzed.
 | `ai-approved` | Triggers implementation | Developer |
 | `ai-failed` | Error occurred | Pipeline |
 
-## Architecture
+## Pipeline Architecture
+
+The pipeline is designed to work in two modes:
+
+### Standalone Mode (GitHub Template Users)
+Use `pipelines/ai-agent.yml` directly. Customize via pipeline variables:
+- `DOCKER_IMAGE` - Override the default OpenCode docker image
+
+### Submodule Mode (Organizations)
+Create your own `azure-pipelines.yml` that includes stages from the template:
+
+```yaml
+# Your org's azure-pipelines.yml
+resources:
+  webhooks:
+    - webhook: WorkItemEvent
+      connection: your-org-webhook  # Your unique webhook name
+
+trigger: none
+
+variables:
+  DOCKER_IMAGE: 'your-org/opencode-custom'
+
+stages:
+  - template: template/pipelines/stages/process.yml
+    parameters:
+      webhookPayload: ${{ parameters.WorkItemEvent }}
+  - template: template/pipelines/stages/analyze.yml
+    parameters:
+      dockerImage: $(DOCKER_IMAGE)
+  - template: template/pipelines/stages/implement.yml
+    parameters:
+      dockerImage: $(DOCKER_IMAGE)
+  - template: template/pipelines/stages/command.yml
+    parameters:
+      dockerImage: $(DOCKER_IMAGE)
+  - template: template/pipelines/stages/skip.yml
+```
+
+See `examples/azure-pipelines.yml` for a complete example.
+
+**Why this pattern?**
+- Webhook connection names are globally unique per Azure DevOps org
+- Each org can use their own docker image
+- Template updates auto-propagate (just update submodule)
+- No duplicated pipeline logic
+
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -180,11 +233,19 @@ Inline images embedded in work item HTML fields are also extracted and analyzed.
 
 ```
 ├── pipelines/
-│   ├── ai-agent.yml              # Main pipeline
-│   └── templates/
-│       ├── analyze.yml           # Analysis stage
-│       ├── implement.yml         # Implementation stage
-│       └── command.yml           # Command stage
+│   ├── ai-agent.yml              # Main standalone pipeline
+│   ├── stages/                   # Reusable stage templates
+│   │   ├── process.yml           # Webhook processing
+│   │   ├── analyze.yml           # Analysis stage
+│   │   ├── implement.yml         # Implementation stage
+│   │   ├── command.yml           # Command stage
+│   │   └── skip.yml              # Skip/no-action stage
+│   └── templates/                # Job templates (used by stages)
+│       ├── analyze.yml
+│       ├── implement.yml
+│       └── command.yml
+├── examples/
+│   └── azure-pipelines.yml       # Example for org customization
 ├── scripts/
 │   ├── get-workitem-context.sh   # Fetch work item details + attachments
 │   ├── build-prompt.sh           # Build prompts for OpenCode

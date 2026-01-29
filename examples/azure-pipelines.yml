@@ -1,0 +1,42 @@
+# Azure DevOps AI Agent Pipeline - Organization Example
+#
+# Copy this file to your org repo as azure-pipelines.yml and customize:
+# 1. Change 'my-org-webhook' to your webhook service connection name
+# 2. Change 'myorg/opencode-custom' to your docker image
+# 3. Adjust any other parameters as needed
+#
+# Prerequisites:
+# - Template repo added as submodule at ./template
+# - Webhook service connection created in Azure DevOps
+# - Pipeline variables: OPENCODE_AUTH_JSON
+
+resources:
+  webhooks:
+    - webhook: WorkItemEvent
+      connection: my-org-webhook  # <-- Change to your webhook connection name
+
+trigger: none
+
+variables:
+  # Your org-specific docker image with OpenCode CLI
+  DOCKER_IMAGE: 'myorg/opencode-custom'  # <-- Change to your image
+
+stages:
+  # Include stages from template submodule
+  - template: template/pipelines/stages/process.yml
+    parameters:
+      webhookPayload: ${{ parameters.WorkItemEvent }}
+
+  - template: template/pipelines/stages/analyze.yml
+    parameters:
+      dockerImage: $(DOCKER_IMAGE)
+
+  - template: template/pipelines/stages/implement.yml
+    parameters:
+      dockerImage: $(DOCKER_IMAGE)
+
+  - template: template/pipelines/stages/command.yml
+    parameters:
+      dockerImage: $(DOCKER_IMAGE)
+
+  - template: template/pipelines/stages/skip.yml

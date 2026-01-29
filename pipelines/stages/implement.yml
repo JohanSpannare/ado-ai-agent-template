@@ -1,0 +1,27 @@
+# Implement Stage Template
+# Runs when ai-approved tag is added to a work item
+#
+# Dependencies: Process stage must complete first
+
+parameters:
+  - name: dockerImage
+    type: string
+    default: 'ghcr.io/opencode-ai/opencode:latest'
+  - name: targetRepo
+    type: string
+    default: ''
+
+stages:
+  - stage: Implement
+    displayName: 'Implement Solution'
+    dependsOn: Process
+    condition: and(succeeded(), eq(dependencies.Process.outputs['DetermineAction.webhook.ACTION'], 'implement'))
+    variables:
+      WORK_ITEM_ID: $[ stageDependencies.Process.DetermineAction.outputs['webhook.WORK_ITEM_ID'] ]
+    jobs:
+      - template: ../templates/implement.yml
+        parameters:
+          workItemId: $(WORK_ITEM_ID)
+          targetRepo: ${{ parameters.targetRepo }}
+          dodConfig: 'default'
+          dockerImage: ${{ parameters.dockerImage }}
