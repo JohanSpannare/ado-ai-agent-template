@@ -1,19 +1,29 @@
 #!/bin/bash
 # run-local.sh
 # Local testing script that mirrors the Azure DevOps pipeline logic exactly
+# Also supports simple interactive/prompt mode for quick testing
 #
-# Usage:
+# Pipeline-mirroring mode (full work item processing):
 #   ./run-local.sh --mode analyze --work-item-id 1373926
 #   ./run-local.sh --mode command --work-item-id 1373926 --command "list all comments"
 #   ./run-local.sh --mode analyze --work-item-id 1373926 --dry-run
 #   ./run-local.sh --mode analyze --context-file ./test-context.json --dry-run
 #
-# Required environment variables:
+# Simple prompt mode (quick testing):
+#   ./run-local.sh "analyze this codebase"
+#   ./run-local.sh -s spectre "what does this system do?"
+#   ./run-local.sh --interactive
+#
+# Required environment variables (pipeline mode):
 #   AZURE_DEVOPS_ORG, AZURE_DEVOPS_PROJECT, AZURE_DEVOPS_PAT
 #   OPENCODE_AUTH_JSON (for actual runs, not dry-run)
 #
+# Required for actual runs (both modes):
+#   ~/.local/share/opencode/auth.json OR OPENCODE_AUTH_JSON
+#
 # Optional:
 #   DOCKER_IMAGE - Override the OpenCode Docker image
+#   AZURE_DEVOPS_ORG_URL - Override ADO URL (default: https://dev.azure.com/$AZURE_DEVOPS_ORG)
 
 set -e
 
@@ -34,6 +44,9 @@ VERBOSE=false
 CONTEXT_FILE=""
 DOCKER_IMAGE="${DOCKER_IMAGE:-jspannareif/opencode-mcp:latest}"
 TARGET_REPO=""
+SYSTEM=""
+INTERACTIVE=false
+PROMPT_ARGS=()
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -70,31 +83,52 @@ while [[ $# -gt 0 ]]; do
             TARGET_REPO="$2"
             shift 2
             ;;
+        -s|--system)
+            SYSTEM="$2"
+            shift 2
+            ;;
+        --interactive|-i)
+            INTERACTIVE=true
+            shift
+            ;;
         --help|-h)
-            echo "Usage: $0 --mode <analyze|implement|command> [options]"
+            echo "Usage: $0 [options] [prompt]"
+            echo ""
+            echo "Pipeline-mirroring mode (processes work items like the ADO pipeline):"
+            echo "  $0 --mode <analyze|implement|command> --work-item-id <id>"
+            echo ""
+            echo "Simple prompt mode (quick testing):"
+            echo "  $0 \"your prompt here\""
+            echo "  $0 --interactive"
             echo ""
             echo "Options:"
-            echo "  --mode <mode>         Required: analyze, implement, or command"
+            echo "  --mode <mode>         Mode: analyze, implement, or command (pipeline mode)"
             echo "  --work-item-id <id>   Work item ID to process (fetches context from ADO)"
             echo "  --context-file <file> Use local context file instead of fetching"
             echo "  --command <text>      Command text (required for command mode)"
+            echo "  -s, --system <name>   System configuration to use"
             echo "  --dry-run             Show what would be sent without running OpenCode"
             echo "  --verbose, -v         Show detailed debug output"
             echo "  --docker-image <img>  Override Docker image"
             echo "  --target-repo <repo>  Target repository (for implement mode)"
+            echo "  -i, --interactive     Start interactive OpenCode session"
             echo "  --help, -h            Show this help"
             echo ""
             echo "Environment variables:"
             echo "  AZURE_DEVOPS_ORG      Azure DevOps organization"
             echo "  AZURE_DEVOPS_PROJECT  Azure DevOps project"
             echo "  AZURE_DEVOPS_PAT      Personal Access Token or System.AccessToken"
-            echo "  OPENCODE_AUTH_JSON    OpenCode auth configuration (for actual runs)"
-            echo "  DOCKER_IMAGE          Override Docker image (default: jspannareif/opencode-mcp:latest)"
+            echo "  OPENCODE_AUTH_JSON    OpenCode auth configuration"
+            echo "  DOCKER_IMAGE          Override Docker image"
             exit 0
             ;;
-        *)
+        -*)
             echo "Unknown option: $1"
             exit 1
+            ;;
+        *)
+            PROMPT_ARGS+=("$1")
+            shift
             ;;
     esac
 done
@@ -129,6 +163,269 @@ section() {
     echo -e "==============================================${NC}"
 }
 
+# Detect script location and mode
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Detect submodule vs standalone mode (same as pipeline)
+cd "$REPO_ROOT"
+if [ -d "template/scripts" ]; then
+    SCRIPTS="template/scripts"
+    SUBMODULE_MODE="true"
+else
+    SCRIPTS="scripts"
+    SUBMODULE_MODE="false"
+fi
+
+# Make scripts executable
+chmod +x $SCRIPTS/*.sh 2>/dev/null || true
+
+# Auth file location
+AUTH_FILE="$HOME/.local/share/opencode/auth.json"
+
+# Determine execution mode
+if [ -n "$MODE" ] || [ -n "$WORK_ITEM_ID" ] || [ -n "$CONTEXT_FILE" ]; then
+    # Pipeline mode - process work item
+    EXECUTION_MODE="pipeline"
+elif [ "$INTERACTIVE" = true ] || [ ${#PROMPT_ARGS[@]} -gt 0 ]; then
+    # Simple prompt/interactive mode
+    EXECUTION_MODE="simple"
+else
+    log_error "No mode specified. Use --help for usage."
+    exit 1
+fi
+
+# ============================================================================
+# SIMPLE MODE - Quick prompt/interactive execution
+# ============================================================================
+if [ "$EXECUTION_MODE" = "simple" ]; then
+    # Check for auth
+    if [ ! -f "$AUTH_FILE" ]; then
+        if [ -n "$OPENCODE_AUTH_JSON" ]; then
+            mkdir -p "$(dirname "$AUTH_FILE")"
+            echo "$OPENCODE_AUTH_JSON" > "$AUTH_FILE"
+        else
+            log_error "Auth file not found at $AUTH_FILE"
+            echo ""
+            echo "To authenticate with GitHub Copilot, run:"
+            echo "  opencode auth login"
+            echo ""
+            echo "Or set OPENCODE_AUTH_JSON environment variable"
+            exit 1
+        fi
+    fi
+
+    # Check for ADO PAT (optional but recommended)
+    if [ -z "$AZURE_DEVOPS_PAT" ]; then
+        log_warn "AZURE_DEVOPS_PAT not set. Azure DevOps MCP will not work."
+    fi
+
+    # Configuration
+    AZURE_DEVOPS_ORG_URL="${AZURE_DEVOPS_ORG_URL:-https://dev.azure.com/${AZURE_DEVOPS_ORG:-your-org}}"
+    WORKSPACE="${WORKSPACE:-$(pwd)}"
+
+    # Copy opencode.json to workspace if not present
+    if [ ! -f "$WORKSPACE/opencode.json" ]; then
+        if [ -f "$REPO_ROOT/systems/_default/opencode.json" ]; then
+            log "Copying opencode.json to workspace..."
+            cp "$REPO_ROOT/systems/_default/opencode.json" "$WORKSPACE/opencode.json"
+        elif [ -f "$REPO_ROOT/template/systems/_default/opencode.json" ]; then
+            log "Copying opencode.json to workspace..."
+            cp "$REPO_ROOT/template/systems/_default/opencode.json" "$WORKSPACE/opencode.json"
+        fi
+    fi
+
+    # Clear and load skills fresh (layered like pipeline)
+    rm -rf "$WORKSPACE/.opencode/skills"
+    mkdir -p "$WORKSPACE/.opencode/skills"
+
+    if [ "$SUBMODULE_MODE" = "true" ]; then
+        # 1. Template default skills (generic base)
+        TEMPLATE_SKILLS_DIR="$REPO_ROOT/template/systems/_default/skills"
+        if [ -d "$TEMPLATE_SKILLS_DIR" ] && [ "$(ls -A "$TEMPLATE_SKILLS_DIR" 2>/dev/null)" ]; then
+            log "Loading template default skills..."
+            cp -r "$TEMPLATE_SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+        fi
+
+        # 2. Local default skills (organization-specific, can override template)
+        LOCAL_SKILLS_DIR="$REPO_ROOT/systems/_default/skills"
+        if [ -d "$LOCAL_SKILLS_DIR" ] && [ "$(ls -A "$LOCAL_SKILLS_DIR" 2>/dev/null)" ]; then
+            log "Loading organization-specific skills..."
+            cp -r "$LOCAL_SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+        fi
+
+        # 3. System-specific skills from both locations
+        if [ -n "$SYSTEM" ]; then
+            for systems_dir in "$REPO_ROOT/template/systems" "$REPO_ROOT/systems"; do
+                SKILLS_DIR="$systems_dir/$SYSTEM/skills"
+                if [ -d "$SKILLS_DIR" ] && [ "$(ls -A "$SKILLS_DIR" 2>/dev/null)" ]; then
+                    log "Loading skills from $(basename "$systems_dir")/$SYSTEM..."
+                    cp -r "$SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+                fi
+            done
+        fi
+    else
+        # Standalone mode: simple loading
+        DEFAULT_SKILLS_DIR="$REPO_ROOT/systems/_default/skills"
+        if [ -d "$DEFAULT_SKILLS_DIR" ] && [ "$(ls -A "$DEFAULT_SKILLS_DIR" 2>/dev/null)" ]; then
+            log "Loading default skills..."
+            cp -r "$DEFAULT_SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+        fi
+
+        if [ -n "$SYSTEM" ]; then
+            SKILLS_DIR="$REPO_ROOT/systems/$SYSTEM/skills"
+            if [ -d "$SKILLS_DIR" ] && [ "$(ls -A "$SKILLS_DIR" 2>/dev/null)" ]; then
+                log "Loading skills from system: $SYSTEM"
+                cp -r "$SKILLS_DIR"/* "$WORKSPACE/.opencode/skills/" 2>/dev/null || true
+            else
+                log_warn "No skills found for system '$SYSTEM'"
+            fi
+        fi
+    fi
+
+    # Clear and load agents fresh (layered like skills)
+    rm -rf "$WORKSPACE/.opencode/agents"
+    mkdir -p "$WORKSPACE/.opencode/agents"
+
+    if [ "$SUBMODULE_MODE" = "true" ]; then
+        # 1. Template default agents
+        TEMPLATE_AGENTS_DIR="$REPO_ROOT/template/systems/_default/agents"
+        if [ -d "$TEMPLATE_AGENTS_DIR" ] && [ "$(ls -A "$TEMPLATE_AGENTS_DIR" 2>/dev/null)" ]; then
+            log "Loading template default agents..."
+            cp -r "$TEMPLATE_AGENTS_DIR"/* "$WORKSPACE/.opencode/agents/" 2>/dev/null || true
+        fi
+
+        # 2. Local default agents (organization-specific, can override template)
+        LOCAL_AGENTS_DIR="$REPO_ROOT/systems/_default/agents"
+        if [ -d "$LOCAL_AGENTS_DIR" ] && [ "$(ls -A "$LOCAL_AGENTS_DIR" 2>/dev/null)" ]; then
+            log "Loading organization-specific agents..."
+            cp -r "$LOCAL_AGENTS_DIR"/* "$WORKSPACE/.opencode/agents/" 2>/dev/null || true
+        fi
+
+        # 3. System-specific agents from both locations
+        if [ -n "$SYSTEM" ]; then
+            for systems_dir in "$REPO_ROOT/template/systems" "$REPO_ROOT/systems"; do
+                AGENTS_DIR="$systems_dir/$SYSTEM/agents"
+                if [ -d "$AGENTS_DIR" ] && [ "$(ls -A "$AGENTS_DIR" 2>/dev/null)" ]; then
+                    log "Loading agents from $(basename "$systems_dir")/$SYSTEM..."
+                    cp -r "$AGENTS_DIR"/* "$WORKSPACE/.opencode/agents/" 2>/dev/null || true
+                fi
+            done
+        fi
+    else
+        # Standalone mode: simple loading
+        DEFAULT_AGENTS_DIR="$REPO_ROOT/systems/_default/agents"
+        if [ -d "$DEFAULT_AGENTS_DIR" ] && [ "$(ls -A "$DEFAULT_AGENTS_DIR" 2>/dev/null)" ]; then
+            log "Loading default agents..."
+            cp -r "$DEFAULT_AGENTS_DIR"/* "$WORKSPACE/.opencode/agents/" 2>/dev/null || true
+        fi
+
+        if [ -n "$SYSTEM" ]; then
+            AGENTS_DIR="$REPO_ROOT/systems/$SYSTEM/agents"
+            if [ -d "$AGENTS_DIR" ] && [ "$(ls -A "$AGENTS_DIR" 2>/dev/null)" ]; then
+                log "Loading agents from system: $SYSTEM"
+                cp -r "$AGENTS_DIR"/* "$WORKSPACE/.opencode/agents/" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    # Show model being used
+    if [ -f "$WORKSPACE/opencode.json" ]; then
+        MODEL=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$WORKSPACE/opencode.json" 2>/dev/null | cut -d'"' -f4)
+        log "Model: ${MODEL:-not specified}"
+    fi
+
+    log "Starting OpenCode container..."
+    echo "  Workspace: $WORKSPACE"
+    echo "  Auth: $AUTH_FILE"
+    echo "  ADO URL: $AZURE_DEVOPS_ORG_URL"
+    echo ""
+
+    # Build docker command as array
+    DOCKER_ARGS=(run --rm)
+
+    if [ -t 0 ] && [ -t 1 ]; then
+        # Interactive TTY available
+        DOCKER_ARGS+=(-it)
+    fi
+
+    # Mount auth directory
+    DOCKER_ARGS+=(-v "$HOME/.local/share/opencode:/root/.local/share/opencode")
+
+    # Mount workspace
+    DOCKER_ARGS+=(-v "$WORKSPACE:/workspace")
+    DOCKER_ARGS+=(-w /workspace)
+
+    # Mount temp/output directory for generated files
+    TEMP_DIR="$REPO_ROOT/.temp"
+    mkdir -p "$TEMP_DIR"
+    DOCKER_ARGS+=(-v "$TEMP_DIR:/output")
+    log "Output directory: $TEMP_DIR (mounted at /output in container)"
+
+    # Mount CA certificates if available (for internal HTTPS endpoints)
+    # Supports multiple .crt files in certs/ directory
+    # Note: update-ca-certificates requires certs directly in /usr/local/share/ca-certificates/
+    # So we mount to /tmp/org-certs and copy in the entrypoint script
+    CERTS_DIR="$REPO_ROOT/certs"
+    CA_CERTS_FOUND=false
+    if [ -d "$CERTS_DIR" ] && ls "$CERTS_DIR"/*.crt 1>/dev/null 2>&1; then
+        log "Mounting organization CA certificates:"
+        ls "$CERTS_DIR"/*.crt | while read cert; do echo "  - $(basename "$cert")"; done
+        DOCKER_ARGS+=(-v "$CERTS_DIR:/tmp/org-certs:ro")
+        CA_CERTS_FOUND=true
+    fi
+
+    # Environment variables
+    if [ -n "$AZURE_DEVOPS_PAT" ]; then
+        DOCKER_ARGS+=(-e "ADO_MCP_AUTH_TOKEN=$AZURE_DEVOPS_PAT")
+    fi
+    DOCKER_ARGS+=(-e "AZURE_DEVOPS_ORG_URL=$AZURE_DEVOPS_ORG_URL")
+
+    # If prompt provided, run non-interactively
+    if [ ${#PROMPT_ARGS[@]} -gt 0 ]; then
+        PROMPT="${PROMPT_ARGS[*]}"
+        log "Running with prompt: $PROMPT"
+        echo ""
+        if [ "$CA_CERTS_FOUND" = true ]; then
+            # Copy org certs to proper location and run update-ca-certificates
+            # Must use --entrypoint to override container's default entrypoint
+            # Set NODE_EXTRA_CA_CERTS so Node.js also trusts the certs
+            # Use $1 for the prompt argument (underscore is placeholder for $0)
+            docker "${DOCKER_ARGS[@]}" --entrypoint sh "$DOCKER_IMAGE" -c '
+                cp /tmp/org-certs/*.crt /usr/local/share/ca-certificates/ 2>/dev/null
+                update-ca-certificates 2>/dev/null
+                export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+                opencode run "$1"
+            ' _ "$PROMPT"
+        else
+            docker "${DOCKER_ARGS[@]}" "$DOCKER_IMAGE" run "$PROMPT"
+        fi
+    else
+        # Interactive mode
+        log "Starting interactive session..."
+        echo ""
+        if [ "$CA_CERTS_FOUND" = true ]; then
+            # Copy org certs to proper location and run update-ca-certificates
+            # Must use --entrypoint to override container's default entrypoint
+            # Set NODE_EXTRA_CA_CERTS so Node.js also trusts the certs
+            docker "${DOCKER_ARGS[@]}" --entrypoint sh "$DOCKER_IMAGE" -c '
+                cp /tmp/org-certs/*.crt /usr/local/share/ca-certificates/ 2>/dev/null
+                update-ca-certificates 2>/dev/null
+                export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+                exec opencode
+            '
+        else
+            docker "${DOCKER_ARGS[@]}" "$DOCKER_IMAGE"
+        fi
+    fi
+
+    exit 0
+fi
+
+# ============================================================================
+# PIPELINE MODE - Full work item processing (mirrors ADO pipeline exactly)
+# ============================================================================
+
 # Validate required arguments
 if [ -z "$MODE" ]; then
     log_error "--mode is required (analyze|implement|command)"
@@ -154,25 +451,6 @@ if [ -z "$WORK_ITEM_ID" ] && [ -z "$CONTEXT_FILE" ]; then
     exit 1
 fi
 
-# Detect script location and mode
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-# Detect submodule vs standalone mode (same as pipeline)
-cd "$REPO_ROOT"
-if [ -d "template/scripts" ]; then
-    SCRIPTS="template/scripts"
-    SUBMODULE_MODE="true"
-    log "Running in submodule mode"
-else
-    SCRIPTS="scripts"
-    SUBMODULE_MODE="false"
-    log "Running in standalone mode"
-fi
-
-# Make scripts executable
-chmod +x $SCRIPTS/*.sh 2>/dev/null || true
-
 section "1. ENVIRONMENT DETECTION"
 
 log "Repository root: $REPO_ROOT"
@@ -190,8 +468,8 @@ if [ -z "$CONTEXT_FILE" ]; then
     log_success "Azure DevOps credentials configured"
 fi
 
-if [ "$DRY_RUN" = false ] && [ -z "$OPENCODE_AUTH_JSON" ]; then
-    log_warn "OPENCODE_AUTH_JSON not set - will fail on actual run"
+if [ "$DRY_RUN" = false ] && [ -z "$OPENCODE_AUTH_JSON" ] && [ ! -f "$AUTH_FILE" ]; then
+    log_warn "OPENCODE_AUTH_JSON not set and no auth file - will fail on actual run"
 fi
 
 section "2. FETCH WORK ITEM CONTEXT"
@@ -230,7 +508,9 @@ fi
 section "3. RESOLVE SYSTEM CONFIGURATION"
 
 # Resolve system (same logic as pipeline)
-if [ "$SUBMODULE_MODE" = "true" ]; then
+if [ -n "$SYSTEM" ]; then
+    log "Using specified system: $SYSTEM"
+elif [ "$SUBMODULE_MODE" = "true" ]; then
     SYSTEM=$(./$SCRIPTS/resolve-system-config.sh \
         --context-file "$WORK_DIR/workitem-context.json" \
         --systems-dir systems \
@@ -392,14 +672,14 @@ fi
 
 section "9. RUN OPENCODE"
 
-if [ -z "$OPENCODE_AUTH_JSON" ]; then
-    log_error "OPENCODE_AUTH_JSON is required for actual runs"
+# Handle auth
+if [ -n "$OPENCODE_AUTH_JSON" ]; then
+    mkdir -p "$HOME/.local/share/opencode"
+    echo "$OPENCODE_AUTH_JSON" > "$HOME/.local/share/opencode/auth.json"
+elif [ ! -f "$AUTH_FILE" ]; then
+    log_error "OPENCODE_AUTH_JSON is required for actual runs (or ~/.local/share/opencode/auth.json)"
     exit 1
 fi
-
-# Create auth directory
-mkdir -p "$HOME/.local/share/opencode"
-echo "$OPENCODE_AUTH_JSON" > "$HOME/.local/share/opencode/auth.json"
 
 # Copy workspace files
 cp "$WORK_DIR/opencode.json" "$REPO_ROOT/opencode.json"
@@ -412,18 +692,46 @@ cp "$WORK_DIR/workitem-context.json" "$REPO_ROOT/" 2>/dev/null || true
 
 log "Running OpenCode in Docker..."
 
+# Build docker arguments
+DOCKER_ARGS="--rm"
+DOCKER_ARGS="$DOCKER_ARGS -e ADO_MCP_AUTH_TOKEN=$AZURE_DEVOPS_PAT"
+DOCKER_ARGS="$DOCKER_ARGS -e AZURE_DEVOPS_ORG_URL=https://dev.azure.com/$AZURE_DEVOPS_ORG"
+DOCKER_ARGS="$DOCKER_ARGS -e AZURE_DEVOPS_ORG=$AZURE_DEVOPS_ORG"
+DOCKER_ARGS="$DOCKER_ARGS -e AZURE_DEVOPS_PROJECT=$AZURE_DEVOPS_PROJECT"
+DOCKER_ARGS="$DOCKER_ARGS -e AZURE_DEVOPS_PAT=$AZURE_DEVOPS_PAT"
+DOCKER_ARGS="$DOCKER_ARGS -e WORK_ITEM_ID=$WORK_ITEM_ID"
+DOCKER_ARGS="$DOCKER_ARGS -v $HOME/.local/share/opencode:/root/.local/share/opencode"
+DOCKER_ARGS="$DOCKER_ARGS -v $REPO_ROOT:/workspace"
+DOCKER_ARGS="$DOCKER_ARGS -w /workspace"
+
+# Add CA certificates if available (for internal HTTPS endpoints)
+# Organizations can provide certs/*.crt files for internal SSL/TLS
+# Note: mount to /tmp/org-certs and copy to proper location in entrypoint
+CA_MOUNT=""
+CERTS_DIR="$REPO_ROOT/certs"
+if [ -d "$CERTS_DIR" ] && ls "$CERTS_DIR"/*.crt 1>/dev/null 2>&1; then
+    log "Mounting organization CA certificates:"
+    ls "$CERTS_DIR"/*.crt | while read cert; do echo "  - $(basename "$cert")"; done
+    CA_MOUNT="-v $CERTS_DIR:/tmp/org-certs:ro"
+fi
+
 # Run OpenCode (same as pipeline)
-docker run --rm \
-    -e ADO_MCP_AUTH_TOKEN="$AZURE_DEVOPS_PAT" \
-    -e AZURE_DEVOPS_ORG_URL="https://dev.azure.com/$AZURE_DEVOPS_ORG" \
-    -e AZURE_DEVOPS_ORG="$AZURE_DEVOPS_ORG" \
-    -e AZURE_DEVOPS_PROJECT="$AZURE_DEVOPS_PROJECT" \
-    -e AZURE_DEVOPS_PAT="$AZURE_DEVOPS_PAT" \
-    -e WORK_ITEM_ID="$WORK_ITEM_ID" \
-    -v "$HOME/.local/share/opencode:/root/.local/share/opencode" \
-    -v "$REPO_ROOT:/workspace" \
-    -w /workspace \
-    "$DOCKER_IMAGE" run --agent "$MODE" "$PROMPT" > "$REPO_ROOT/result.md"
+# If CA certs mounted, copy to proper location and run update-ca-certificates
+# Must use --entrypoint to override container's default entrypoint
+# Set NODE_EXTRA_CA_CERTS so Node.js also trusts the certs
+# Use $1 and $2 for agent mode and prompt (underscore is placeholder for $0)
+if [ -n "$CA_MOUNT" ]; then
+    docker run $DOCKER_ARGS $CA_MOUNT --entrypoint sh \
+        "$DOCKER_IMAGE" -c '
+            cp /tmp/org-certs/*.crt /usr/local/share/ca-certificates/ 2>/dev/null
+            update-ca-certificates 2>/dev/null
+            export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+            opencode run --agent "$1" "$2"
+        ' _ "$MODE" "$PROMPT" > "$REPO_ROOT/result.md"
+else
+    docker run $DOCKER_ARGS \
+        "$DOCKER_IMAGE" run --agent "$MODE" "$PROMPT" > "$REPO_ROOT/result.md"
+fi
 
 section "10. RESULT"
 

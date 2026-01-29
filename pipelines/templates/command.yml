@@ -242,17 +242,26 @@ jobs:
 
           # Add CA certificates if available (for internal HTTPS endpoints)
           # Organizations can provide certs/*.crt files for internal SSL/TLS
+          # Mount to /tmp/org-certs and copy to proper location in entrypoint
           CA_MOUNT=""
           if [ -d "certs" ] && ls certs/*.crt 1>/dev/null 2>&1; then
             echo "Mounting organization CA certificates..."
-            CA_MOUNT="-v $(pwd)/certs:/usr/local/share/ca-certificates/org:ro"
+            CA_MOUNT="-v $(pwd)/certs:/tmp/org-certs:ro"
           fi
 
           # Run OpenCode with command agent
-          # If CA certs mounted, run update-ca-certificates first
+          # If CA certs mounted, copy to proper location and run update-ca-certificates
+          # Must use --entrypoint to override container's default entrypoint
+          # Set NODE_EXTRA_CA_CERTS so Node.js also trusts the certs
+          # Use $1 for prompt (underscore is placeholder for $0)
           if [ -n "$CA_MOUNT" ]; then
-            docker run $DOCKER_ARGS $CA_MOUNT \
-              ${{ parameters.dockerImage }} sh -c "update-ca-certificates 2>/dev/null; opencode run --agent command \"\$0\"" "$PROMPT" > command-result.md
+            docker run $DOCKER_ARGS $CA_MOUNT --entrypoint sh \
+              ${{ parameters.dockerImage }} -c '
+                cp /tmp/org-certs/*.crt /usr/local/share/ca-certificates/ 2>/dev/null
+                update-ca-certificates 2>/dev/null
+                export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+                opencode run --agent command "$1"
+              ' _ "$PROMPT" > command-result.md
           else
             docker run $DOCKER_ARGS \
               ${{ parameters.dockerImage }} run --agent command "$PROMPT" > command-result.md
