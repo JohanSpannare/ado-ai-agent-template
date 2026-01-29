@@ -8,12 +8,30 @@ Automated AI agent triggered by Azure DevOps work items that implements solution
 
 ## Getting Started with This Template
 
+### Option A: Fork and Customize
 1. Fork or clone this repository
 2. Search and replace these placeholders:
    - `your-org` → Your Azure DevOps organization name
    - `your-project` → Your Azure DevOps project name
 3. Configure your test work item ID in `CLAUDE.md`
 4. Follow the [Setup Guide](docs/SETUP.md)
+
+### Option B: Use as Submodule (Recommended for Organizations)
+Use this template as a submodule to keep generic and organization-specific code separate:
+
+```bash
+# Create your organization repo
+mkdir my-org-ai-agent && cd my-org-ai-agent
+git init
+
+# Add template as submodule
+git submodule add https://github.com/your-org/ado-ai-agent-template.git template
+
+# Create your organization-specific systems and skills
+mkdir -p systems skills
+```
+
+See [Extending Guide](docs/EXTENDING.md) for detailed submodule setup.
 
 ## Key Insight: The Right Tools Matter
 

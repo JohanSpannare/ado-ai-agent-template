@@ -5,6 +5,13 @@
 # - Default prompt + system prompt additions
 # - Work item context
 # - Command text (for command mode)
+#
+# Supports multiple systems directories for template + organization overlay pattern:
+#   --systems-dir ./systems --systems-dir ./template/systems
+#
+# File resolution order (first found wins):
+#   1. Organization systems (./systems)
+#   2. Template systems (./template/systems)
 
 set -e
 
@@ -13,7 +20,7 @@ MODE=""
 SYSTEM=""
 CONTEXT_FILE=""
 COMMAND_TEXT=""
-SYSTEMS_DIR=""
+SYSTEMS_DIRS=()
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -35,7 +42,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --systems-dir)
-            SYSTEMS_DIR="$2"
+            SYSTEMS_DIRS+=("$2")
             shift 2
             ;;
         *)
@@ -78,19 +85,43 @@ if [ "$MODE" = "command" ] && [ -z "$COMMAND_TEXT" ]; then
 fi
 
 # Determine paths
-if [ -z "$SYSTEMS_DIR" ]; then
+if [ ${#SYSTEMS_DIRS[@]} -eq 0 ]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    SYSTEMS_DIR="$SCRIPT_DIR/../systems"
+    SYSTEMS_DIRS=("$SCRIPT_DIR/../systems")
 fi
 
-DEFAULT_DIR="$SYSTEMS_DIR/_default"
-SYSTEM_DIR="$SYSTEMS_DIR/$SYSTEM"
+# Helper function to find file in systems directories (first found wins)
+find_file() {
+    local subpath="$1"
+    for dir in "${SYSTEMS_DIRS[@]}"; do
+        if [ -f "$dir/$subpath" ]; then
+            echo "$dir/$subpath"
+            return 0
+        fi
+    done
+    return 1
+}
 
-# Validate default directory exists
-if [ ! -d "$DEFAULT_DIR" ]; then
-    echo "Error: Default system directory not found: $DEFAULT_DIR" >&2
+# Helper function to find directory in systems directories (first found wins)
+find_dir() {
+    local subpath="$1"
+    for dir in "${SYSTEMS_DIRS[@]}"; do
+        if [ -d "$dir/$subpath" ]; then
+            echo "$dir/$subpath"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Find default directory (must exist in at least one location)
+DEFAULT_DIR=$(find_dir "_default") || {
+    echo "Error: Default system directory not found in any systems directory" >&2
     exit 1
-fi
+}
+
+# Find system directory (may not exist if using _default)
+SYSTEM_DIR=$(find_dir "$SYSTEM") || SYSTEM_DIR=""
 
 # Validate context file exists
 if [ ! -f "$CONTEXT_FILE" ]; then
@@ -104,21 +135,25 @@ fi
 
 SYSTEM_CONTEXT=""
 
-# Always include default context
-if [ -f "$DEFAULT_DIR/context.md" ]; then
-    SYSTEM_CONTEXT=$(cat "$DEFAULT_DIR/context.md")
+# Always include default context (check all systems directories)
+DEFAULT_CONTEXT_FILE=$(find_file "_default/context.md") || true
+if [ -n "$DEFAULT_CONTEXT_FILE" ]; then
+    SYSTEM_CONTEXT=$(cat "$DEFAULT_CONTEXT_FILE")
 fi
 
 # Add system-specific context if exists and not _default
-if [ "$SYSTEM" != "_default" ] && [ -f "$SYSTEM_DIR/context.md" ]; then
-    if [ -n "$SYSTEM_CONTEXT" ]; then
-        SYSTEM_CONTEXT="$SYSTEM_CONTEXT
+if [ "$SYSTEM" != "_default" ]; then
+    SYSTEM_CONTEXT_FILE=$(find_file "$SYSTEM/context.md") || true
+    if [ -n "$SYSTEM_CONTEXT_FILE" ]; then
+        if [ -n "$SYSTEM_CONTEXT" ]; then
+            SYSTEM_CONTEXT="$SYSTEM_CONTEXT
 
 ---
 
 "
+        fi
+        SYSTEM_CONTEXT="$SYSTEM_CONTEXT$(cat "$SYSTEM_CONTEXT_FILE")"
     fi
-    SYSTEM_CONTEXT="$SYSTEM_CONTEXT$(cat "$SYSTEM_DIR/context.md")"
 fi
 
 # Fallback if no context found
@@ -132,23 +167,23 @@ fi
 
 PROMPT_CONTENT=""
 
-# Always include default prompt
-DEFAULT_PROMPT="$DEFAULT_DIR/prompts/$MODE.md"
-if [ -f "$DEFAULT_PROMPT" ]; then
-    PROMPT_CONTENT=$(cat "$DEFAULT_PROMPT")
-else
-    echo "Error: Default prompt not found: $DEFAULT_PROMPT" >&2
+# Always include default prompt (check all systems directories)
+DEFAULT_PROMPT=$(find_file "_default/prompts/$MODE.md") || {
+    echo "Error: Default prompt not found for mode: $MODE" >&2
     exit 1
-fi
+}
+PROMPT_CONTENT=$(cat "$DEFAULT_PROMPT")
 
 # Add system-specific prompt additions if exists
-SYSTEM_PROMPT="$SYSTEM_DIR/prompts/$MODE.md"
-if [ "$SYSTEM" != "_default" ] && [ -f "$SYSTEM_PROMPT" ]; then
-    PROMPT_CONTENT="$PROMPT_CONTENT
+if [ "$SYSTEM" != "_default" ]; then
+    SYSTEM_PROMPT=$(find_file "$SYSTEM/prompts/$MODE.md") || true
+    if [ -n "$SYSTEM_PROMPT" ]; then
+        PROMPT_CONTENT="$PROMPT_CONTENT
 
 ---
 
 $(cat "$SYSTEM_PROMPT")"
+    fi
 fi
 
 # =============================================================================

@@ -2,12 +2,17 @@
 # resolve-system-config.sh
 # Matches work item against system configuration detection rules
 # Returns the matching system name or "_default"
+#
+# Supports multiple systems directories for template + organization overlay pattern:
+#   --systems-dir ./systems --systems-dir ./template/systems
+#
+# Search order: First match wins (organization systems checked before template)
 
 set -e
 
 # Default values
 CONTEXT_FILE=""
-SYSTEMS_DIR=""
+SYSTEMS_DIRS=()
 VERBOSE=false
 
 # Parse arguments
@@ -18,7 +23,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --systems-dir)
-            SYSTEMS_DIR="$2"
+            SYSTEMS_DIRS+=("$2")
             shift 2
             ;;
         --verbose)
@@ -35,7 +40,7 @@ done
 # Validate required arguments
 if [ -z "$CONTEXT_FILE" ]; then
     echo "Error: --context-file is required" >&2
-    echo "Usage: $0 --context-file <path-to-workitem.json> [--systems-dir <path>] [--verbose]" >&2
+    echo "Usage: $0 --context-file <path-to-workitem.json> [--systems-dir <path>]... [--verbose]" >&2
     exit 1
 fi
 
@@ -44,14 +49,22 @@ if [ ! -f "$CONTEXT_FILE" ]; then
     exit 1
 fi
 
-# Default systems directory
-if [ -z "$SYSTEMS_DIR" ]; then
+# Default systems directory if none provided
+if [ ${#SYSTEMS_DIRS[@]} -eq 0 ]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    SYSTEMS_DIR="$SCRIPT_DIR/../systems"
+    SYSTEMS_DIRS=("$SCRIPT_DIR/../systems")
 fi
 
-if [ ! -d "$SYSTEMS_DIR" ]; then
-    echo "Error: Systems directory not found: $SYSTEMS_DIR" >&2
+# Validate at least one systems directory exists
+VALID_DIRS=()
+for dir in "${SYSTEMS_DIRS[@]}"; do
+    if [ -d "$dir" ]; then
+        VALID_DIRS+=("$dir")
+    fi
+done
+
+if [ ${#VALID_DIRS[@]} -eq 0 ]; then
+    echo "Error: No valid systems directories found" >&2
     exit 1
 fi
 
@@ -218,18 +231,22 @@ check_system_match() {
 }
 
 # Process system directories (alphabetically, excluding _default)
+# Search in order: organization systems first, then template systems
 MATCHED_SYSTEM=""
 
-for system_dir in "$SYSTEMS_DIR"/*/; do
-    if [ ! -d "$system_dir" ]; then
-        continue
-    fi
+for systems_dir in "${VALID_DIRS[@]}"; do
+    log "Searching in: $systems_dir"
+    for system_dir in "$systems_dir"/*/; do
+        if [ ! -d "$system_dir" ]; then
+            continue
+        fi
 
-    if check_system_match "$system_dir"; then
-        MATCHED_SYSTEM=$(basename "$system_dir")
-        log "Found matching system: $MATCHED_SYSTEM"
-        break
-    fi
+        if check_system_match "$system_dir"; then
+            MATCHED_SYSTEM=$(basename "$system_dir")
+            log "Found matching system: $MATCHED_SYSTEM in $systems_dir"
+            break 2  # Break out of both loops
+        fi
+    done
 done
 
 # Return result
