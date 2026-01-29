@@ -244,9 +244,9 @@ jobs:
           DOCKER_ARGS="$DOCKER_ARGS -w /workspace"
 
           # Add CA certificate if available (for internal HTTPS endpoints)
-          if [ -f "certs/if-root-ca-g2.crt" ]; then
+          if [ -f "certs/root-ca.crt" ]; then
             echo "Mounting organization CA certificate..."
-            DOCKER_ARGS="$DOCKER_ARGS -v $(pwd)/certs/if-root-ca-g2.crt:/usr/local/share/ca-certificates/org-root-ca.crt"
+            DOCKER_ARGS="$DOCKER_ARGS -v $(pwd)/certs/root-ca.crt:/usr/local/share/ca-certificates/org-root-ca.crt"
             DOCKER_ARGS="$DOCKER_ARGS -e NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/org-root-ca.crt"
           elif [ -f "template/certs/root-ca.crt" ]; then
             echo "Mounting template CA certificate..."

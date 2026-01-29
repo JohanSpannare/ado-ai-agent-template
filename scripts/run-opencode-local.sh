@@ -58,7 +58,7 @@ if [ -z "$AZURE_DEVOPS_PAT" ]; then
 fi
 
 # Configuration
-AZURE_DEVOPS_ORG_URL="${AZURE_DEVOPS_ORG_URL:-https://dev.azure.com/if-it}"
+AZURE_DEVOPS_ORG_URL="${AZURE_DEVOPS_ORG_URL:-https://dev.azure.com/your-org}"
 IMAGE="${OPENCODE_IMAGE:-jspannareif/opencode-mcp:latest}"
 WORKSPACE="${WORKSPACE:-$(pwd)}"
 
@@ -250,11 +250,11 @@ mkdir -p "$TEMP_DIR"
 DOCKER_ARGS+=(-v "$TEMP_DIR:/output")
 echo -e "${GREEN}Output directory:${NC} $TEMP_DIR (mounted at /output in container)"
 
-# Mount root CA certificate
-CERT_FILE="$REPO_ROOT/certs/if-root-ca-g2.crt"
+# Mount root CA certificate if available (for internal HTTPS endpoints)
+CERT_FILE="$REPO_ROOT/certs/root-ca.crt"
 if [ -f "$CERT_FILE" ]; then
-    DOCKER_ARGS+=(-v "$CERT_FILE:/usr/local/share/ca-certificates/if-root-ca-g2.crt")
-    DOCKER_ARGS+=(-e "NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/if-root-ca-g2.crt")
+    DOCKER_ARGS+=(-v "$CERT_FILE:/usr/local/share/ca-certificates/org-root-ca.crt")
+    DOCKER_ARGS+=(-e "NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/org-root-ca.crt")
 fi
 
 # Environment variables
