@@ -221,6 +221,7 @@ See `examples/azure-pipelines.yml` for a complete example.
 |----------|-------------|
 | [Usage Guide](docs/USAGE.md) | How to use the AI agent (start here) |
 | [Setup Guide](docs/SETUP.md) | Installation and configuration |
+| [Local Testing](docs/LOCAL-TESTING.md) | Test locally without Azure DevOps pipeline |
 | [DoD Guide](docs/DOD-GUIDE.md) | Creating Definition of Done configs |
 | [Pipeline Guide](docs/azure-pipelines-ghe.md) | Technical setup for OpenCode in pipelines |
 | [Features](docs/FEATURES.md) | Feature list with implementation status |
@@ -247,6 +248,7 @@ See `examples/azure-pipelines.yml` for a complete example.
 ├── examples/
 │   └── azure-pipelines.yml       # Example for org customization
 ├── scripts/
+│   ├── run-local.sh              # Local testing (mirrors pipeline)
 │   ├── get-workitem-context.sh   # Fetch work item details + attachments
 │   ├── build-prompt.sh           # Build prompts for OpenCode
 │   ├── update-workitem.sh        # Update comments/tags/reactions

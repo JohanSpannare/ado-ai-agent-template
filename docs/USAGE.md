@@ -186,6 +186,34 @@ The AI can analyze attachments attached to the work item:
 
 ---
 
+## Comment Updates (Idempotent)
+
+When you re-run analysis on the same work item, the AI **updates its existing comment** instead of creating a new one. This keeps the work item clean and avoids comment spam.
+
+### How it works
+
+1. AI comments are marked with a hidden `[AI-ANALYSIS]` marker
+2. When the pipeline runs, it checks for an existing comment with this marker
+3. If found, the existing comment is **updated** with new content
+4. If not found, a new comment is created
+
+### Benefits
+
+- **Clean history**: Only one AI analysis comment per work item
+- **Always current**: Re-running shows the latest analysis
+- **No duplicates**: Multiple runs don't create multiple comments
+
+### When updates happen
+
+| Scenario | Result |
+|----------|--------|
+| First `ai-ready` run | New comment created |
+| Second `ai-ready` run | Existing comment updated |
+| `ai-approved` run | New implementation comment (different marker) |
+| `@ai` command | New response comment |
+
+---
+
 ## Support
 
 - **Pipeline logs**: Click the link in the error comment
