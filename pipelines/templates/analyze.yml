@@ -259,7 +259,7 @@ jobs:
 
           ./$SCRIPTS/update-workitem.sh \
             --work-item-id "${{ parameters.workItemId }}" \
-            --upsert-comment "<!-- AI-ANALYSIS -->" \
+            --upsert-comment "AI-ANALYSIS" \
             --add-comment "$ANALYSIS_WITH_FOOTER" \
             --remove-tag "ai-working"
         displayName: 'Post analysis to work item'

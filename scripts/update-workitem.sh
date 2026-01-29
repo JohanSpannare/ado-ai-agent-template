@@ -479,8 +479,9 @@ if [ -n "$UPSERT_MARKER" ] && [ -n "$ADD_COMMENT" ]; then
     # Search for existing comment with the marker
     EXISTING_COMMENT_ID=$(get_comment_id_with_pattern "$UPSERT_MARKER")
 
-    # Prepend marker to content (HTML comment - invisible in UI)
-    COMMENT_WITH_MARKER="${UPSERT_MARKER}
+    # Prepend marker as small badge at top of comment
+    COMMENT_WITH_MARKER="**[$UPSERT_MARKER]**
+
 ${ADD_COMMENT}"
 
     if [ -n "$EXISTING_COMMENT_ID" ]; then

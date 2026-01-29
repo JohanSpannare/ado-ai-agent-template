@@ -344,7 +344,7 @@ jobs:
 
           ./$SCRIPTS/update-workitem.sh \
             --work-item-id "${{ parameters.workItemId }}" \
-            --upsert-comment "<!-- AI-IMPLEMENTATION -->" \
+            --upsert-comment "AI-IMPLEMENTATION" \
             --add-comment "## Implementation Complete
 
           Pull Request created: $PR_URL
