@@ -205,12 +205,24 @@ jobs:
               --context workitem-context.json)
           fi
 
+          # Capture agent and skills info for logging
+          AGENT_NAME="implement"
+          SKILLS_LIST=$(ls -1 .opencode/skills/ 2>/dev/null | sed 's/\.md$//' | tr '\n' ', ' | sed 's/,$//')
+          AGENTS_LIST=$(ls -1 .opencode/agents/ 2>/dev/null | sed 's/\.md$//' | tr '\n' ', ' | sed 's/,$//')
+
           # Log what we're sending to OpenCode
           echo "=============================================="
           echo "OPENCODE INPUT - IMPLEMENT MODE"
           echo "=============================================="
+          echo "Agent: $AGENT_NAME"
           echo "System: $SYSTEM"
           echo "Submodule Mode: $SUBMODULE_MODE"
+          echo ""
+          echo "--- AVAILABLE SKILLS ---"
+          echo "$SKILLS_LIST"
+          echo ""
+          echo "--- AVAILABLE AGENTS ---"
+          echo "$AGENTS_LIST"
           echo ""
           echo "--- PROMPT ---"
           echo "$PROMPT"
@@ -337,7 +349,10 @@ jobs:
 
           Pull Request created: $PR_URL
 
-          Please review and merge when ready." \
+          Please review and merge when ready.
+
+          ---
+          *Agent: implement*" \
             --remove-tag "ai-working" \
             --remove-tag "ai-approved"
         displayName: 'Update work item with PR link'

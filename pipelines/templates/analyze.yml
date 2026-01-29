@@ -201,12 +201,24 @@ jobs:
               --context workitem-context.json)
           fi
 
+          # Capture agent and skills info for logging
+          AGENT_NAME="analyze"
+          SKILLS_LIST=$(ls -1 .opencode/skills/ 2>/dev/null | sed 's/\.md$//' | tr '\n' ', ' | sed 's/,$//')
+          AGENTS_LIST=$(ls -1 .opencode/agents/ 2>/dev/null | sed 's/\.md$//' | tr '\n' ', ' | sed 's/,$//')
+
           # Log what we're sending to OpenCode
           echo "=============================================="
           echo "OPENCODE INPUT - ANALYZE MODE"
           echo "=============================================="
+          echo "Agent: $AGENT_NAME"
           echo "System: $SYSTEM"
           echo "Submodule Mode: $SUBMODULE_MODE"
+          echo ""
+          echo "--- AVAILABLE SKILLS ---"
+          echo "$SKILLS_LIST"
+          echo ""
+          echo "--- AVAILABLE AGENTS ---"
+          echo "$AGENTS_LIST"
           echo ""
           echo "--- PROMPT ---"
           echo "$PROMPT"
@@ -239,10 +251,16 @@ jobs:
           # Post analysis as work item comment (upsert: update existing or create new)
           ANALYSIS=$(cat analysis-result.md)
 
+          # Add agent signature to footer
+          ANALYSIS_WITH_FOOTER="${ANALYSIS}
+
+---
+*Agent: analyze*"
+
           ./$SCRIPTS/update-workitem.sh \
             --work-item-id "${{ parameters.workItemId }}" \
             --upsert-comment "<!-- AI-ANALYSIS -->" \
-            --add-comment "$ANALYSIS" \
+            --add-comment "$ANALYSIS_WITH_FOOTER" \
             --remove-tag "ai-working"
         displayName: 'Post analysis to work item'
         env:
