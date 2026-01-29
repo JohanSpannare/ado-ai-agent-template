@@ -10,6 +10,7 @@ parameters:
     type: string
   - name: targetRepo
     type: string
+    default: ''
   - name: dodConfig
     type: string
     default: 'default'
