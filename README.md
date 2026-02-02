@@ -68,6 +68,23 @@ See [Extending Guide](docs/EXTENDING.md) for detailed submodule setup.
 
 > **Note:** The solution currently uses **a dedicated GitHub Copilot license** for AI capabilities. For production deployment, a dedicated service account with Copilot license should be provisioned.
 
+## OpenCode Configuration
+
+| Setting | Value |
+|---------|-------|
+| Default Model | `github-copilot/gpt-5.2` |
+| OpenCode Zen | Enabled |
+
+### Pipeline Agents
+
+| Agent | Model | Purpose |
+|-------|-------|---------|
+| analyze | gpt-5.2 | Work item analysis with vision support |
+| implement | gpt-5.1-codex-max | Code generation |
+| command | gpt-5.2 | @ai command responses with vision support |
+
+Configuration files: `opencode.json`, `systems/_default/opencode.json`, and `systems/_default/agents/*.md`
+
 ## Quick Start
 
 1. **Setup** - Follow the [Setup Guide](docs/SETUP.md) to configure tokens and pipeline variables

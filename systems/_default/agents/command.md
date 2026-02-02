@@ -1,6 +1,6 @@
 ---
 description: Executes custom AI commands from @ai mentions
-model: github-copilot/gpt-4.1
+model: github-copilot/gpt-5.2
 temperature: 0.3
 ---
 You are a command agent responding to @ai mentions in work item comments.

@@ -1,6 +1,6 @@
 ---
 description: Analyzes work items and proposes implementation approaches
-model: github-copilot/gpt-4.1
+model: github-copilot/gpt-5.2
 temperature: 0.1
 tools:
   edit: false
