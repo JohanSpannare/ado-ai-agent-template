@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # build-prompt.sh
 # Builds a complete prompt by combining:
 # - Default context + system context

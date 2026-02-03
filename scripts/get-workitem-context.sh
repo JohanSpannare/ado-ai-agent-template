@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # get-workitem-context.sh
 # Fetches work item details from Azure DevOps REST API
 # Including attachments (images, PDFs, etc.)

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # run-local.sh
 # Local testing script that mirrors the Azure DevOps pipeline logic exactly
 # Also supports simple interactive/prompt mode for quick testing

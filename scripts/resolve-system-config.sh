@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # resolve-system-config.sh
 # Matches work item against system configuration detection rules
 # Returns the matching system name or "_default"

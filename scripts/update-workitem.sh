@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # update-workitem.sh
 # Updates work item with comments and tags via Azure DevOps REST API
 

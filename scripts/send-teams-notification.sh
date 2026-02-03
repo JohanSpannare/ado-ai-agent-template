@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # send-teams-notification.sh
 # Sends notifications to Microsoft Teams via webhook
 

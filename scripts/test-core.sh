@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test-core.sh
 # Test suite for core OpenCode pipeline functionality
 #
