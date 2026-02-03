@@ -80,7 +80,7 @@ See [Extending Guide](docs/EXTENDING.md) for detailed submodule setup.
 | Agent | Model | Purpose |
 |-------|-------|---------|
 | analyze | gpt-5.2 | Work item analysis with vision support |
-| implement | gpt-5.1-codex-max | Code generation |
+| implement | gpt-5.2-codex | Code generation |
 | command | gpt-5.2 | @ai command responses with vision support |
 
 Configuration files: `opencode.json`, `systems/_default/opencode.json`, and `systems/_default/agents/*.md`

@@ -1,6 +1,6 @@
 ---
 description: Implements code solutions based on work item requirements
-model: github-copilot/gpt-5.1-codex-max
+model: github-copilot/gpt-5.2-codex
 temperature: 0.1
 ---
 You are an implementation agent. Write production-quality code based on work item requirements.
