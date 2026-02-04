@@ -33,7 +33,7 @@ jobs:
         persistCredentials: true
         submodules: true
 
-      - script: |
+      - bash: |
           # Auto-detect org from System.CollectionUri
           export AZURE_DEVOPS_ORG=$(echo "$SYSTEM_COLLECTIONURI" | sed 's|https://dev.azure.com/||' | sed 's|/$||')
           echo "##vso[task.setvariable variable=AZURE_DEVOPS_ORG]$AZURE_DEVOPS_ORG"
@@ -57,7 +57,7 @@ jobs:
 
       # ai-working tag already added in Process stage
 
-      - script: |
+      - bash: |
           # Configure git
           git config user.name "AI Agent"
           git config user.email "ai-agent@pipeline.local"
@@ -68,7 +68,7 @@ jobs:
           echo "##vso[task.setvariable variable=BRANCH_NAME]$BRANCH_NAME"
         displayName: 'Create feature branch'
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           # Fetch work item context and download attachments
           mkdir -p attachments
@@ -86,7 +86,7 @@ jobs:
           AZURE_DEVOPS_PROJECT: $(System.TeamProject)
           AZURE_DEVOPS_PAT: $(System.AccessToken)
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           SUBMODULE_MODE="$(SUBMODULE_MODE)"
 
@@ -192,7 +192,7 @@ jobs:
           ls .opencode/agents/ 2>/dev/null || echo "  (none)"
         displayName: 'Resolve system configuration'
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           SUBMODULE_MODE="$(SUBMODULE_MODE)"
           SYSTEM="$(DETECTED_SYSTEM)"
@@ -286,7 +286,7 @@ jobs:
           ADO_MCP_AUTH_TOKEN: $(System.AccessToken)
           AZURE_DEVOPS_ORG: $(AZURE_DEVOPS_ORG)
 
-      - script: |
+      - bash: |
           SUBMODULE_MODE="$(SUBMODULE_MODE)"
           SYSTEM="$(DETECTED_SYSTEM)"
 
@@ -335,7 +335,7 @@ jobs:
         displayName: 'Run Definition of Done checks'
         continueOnError: false
 
-      - script: |
+      - bash: |
           # Commit and push changes
           git add -A
           git commit -m "AI Agent: Implement work item #${{ parameters.workItemId }}
@@ -350,7 +350,7 @@ jobs:
           GH_HOST: $(GH_HOST)
           GH_TOKEN: $(GHE_TOKEN)
 
-      - script: |
+      - bash: |
           # Create Pull Request using GitHub CLI
           gh pr create \
             --title "AI Agent: Work Item #${{ parameters.workItemId }}" \
@@ -373,7 +373,7 @@ jobs:
           GH_HOST: $(GH_HOST)
           GH_TOKEN: $(GHE_TOKEN)
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           # Update work item with PR link (upsert: update existing or create new)
           PR_URL=$(cat pr-url.txt)
@@ -397,7 +397,7 @@ jobs:
           AZURE_DEVOPS_PROJECT: $(System.TeamProject)
           AZURE_DEVOPS_PAT: $(System.AccessToken)
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           # Notify on failure
           ./$SCRIPTS/send-teams-notification.sh \

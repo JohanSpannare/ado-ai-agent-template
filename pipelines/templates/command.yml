@@ -28,7 +28,7 @@ jobs:
         displayName: 'Checkout repository'
         submodules: true
 
-      - script: |
+      - bash: |
           # Auto-detect org from System.CollectionUri
           export AZURE_DEVOPS_ORG=$(echo "$SYSTEM_COLLECTIONURI" | sed 's|https://dev.azure.com/||' | sed 's|/$||')
           echo "##vso[task.setvariable variable=AZURE_DEVOPS_ORG]$AZURE_DEVOPS_ORG"
@@ -50,7 +50,7 @@ jobs:
         env:
           SYSTEM_COLLECTIONURI: $(System.CollectionUri)
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           # Fetch work item context and download attachments
           mkdir -p attachments
@@ -68,7 +68,7 @@ jobs:
           AZURE_DEVOPS_PROJECT: $(System.TeamProject)
           AZURE_DEVOPS_PAT: $(System.AccessToken)
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           SUBMODULE_MODE="$(SUBMODULE_MODE)"
 
@@ -174,7 +174,7 @@ jobs:
           ls .opencode/agents/ 2>/dev/null || echo "  (none)"
         displayName: 'Resolve system configuration'
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           SUBMODULE_MODE="$(SUBMODULE_MODE)"
           SYSTEM="$(DETECTED_SYSTEM)"
@@ -278,7 +278,7 @@ jobs:
           ADO_MCP_AUTH_TOKEN: $(System.AccessToken)
           AZURE_DEVOPS_ORG: $(AZURE_DEVOPS_ORG)
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           # Post response as work item comment
           RESULT=$(cat command-result.md)
@@ -299,7 +299,7 @@ jobs:
           AZURE_DEVOPS_PROJECT: $(System.TeamProject)
           AZURE_DEVOPS_PAT: $(System.AccessToken)
 
-      - script: |
+      - bash: |
           SCRIPTS="$(SCRIPTS_DIR)"
           # Notify on failure
           if [ "$AGENT_JOBSTATUS" == "Failed" ]; then
