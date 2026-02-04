@@ -17,12 +17,15 @@ parameters:
   - name: dockerImage
     type: string
     default: 'ghcr.io/opencode-ai/opencode:latest'
+  - name: pool
+    type: object
+    default:
+      vmImage: 'ubuntu-latest'
 
 jobs:
   - job: ImplementSolution
     displayName: 'Implement Solution'
-    pool:
-      vmImage: 'ubuntu-latest'
+    pool: ${{ parameters.pool }}
 
     steps:
       - checkout: self

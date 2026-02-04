@@ -13,12 +13,15 @@ parameters:
   - name: dockerImage
     type: string
     default: 'ghcr.io/opencode-ai/opencode:latest'
+  - name: pool
+    type: object
+    default:
+      vmImage: 'ubuntu-latest'
 
 jobs:
   - job: ExecuteCommand
     displayName: 'Execute AI Command'
-    pool:
-      vmImage: 'ubuntu-latest'
+    pool: ${{ parameters.pool }}
 
     steps:
       - checkout: self
